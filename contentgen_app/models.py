@@ -1,51 +1,28 @@
-from django.shortcuts import render
-from django.views.decorators.csrf import csrf_exempt
-from .ai_generator import generate_text
-from .models import GeneratedContent
+from django.db import models
+from django.contrib.auth import get_user_model
+from django.contrib.postgres.fields import JSONField  # If using Postgres
 
-@csrf_exempt
-def prompt_to_content_view(request):
-    context = {}
+User = get_user_model()
 
-    if request.method == 'POST':
-        prompt = request.POST.get('prompt', '').strip()
+class GeneratedContent(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('success', 'Success'),
+        ('failed', 'Failed'),
+    ]
 
-        if prompt:
-            # Create initial record with status pending
-            record = GeneratedContent.objects.create(
-                user=request.user if request.user.is_authenticated else None,
-                prompt=prompt,
-                status='pending'
-            )
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='generated_contents')
+    prompt = models.TextField()
+    content = models.TextField(blank=True, null=True)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
+    tokens_used = models.IntegerField(null=True, blank=True)
+    tags = models.CharField(max_length=255, blank=True, help_text="Comma-separated tags")
+    metadata = models.JSONField(blank=True, null=True)  # for API params, etc
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
-            try:
-                content = generate_text(prompt)
-                
-                # Simulate counting tokens / words
-                tokens_used = len(content.split())
+    class Meta:
+        ordering = ['-created_at']
 
-                # Update the record
-                record.content = content
-                record.tokens_used = tokens_used
-                record.status = 'success'
-                record.metadata = {'model': 'gpt-4', 'temperature': 0.7}
-                record.save()
-
-                context.update({
-                    'prompt': prompt,
-                    'content': content,
-                    'success': True,
-                })
-            except Exception as e:
-                record.status = 'failed'
-                record.metadata = {'error': str(e)}
-                record.save()
-                
-                context.update({
-                    'error': f"Error generating content: {e}",
-                    'prompt': prompt
-                })
-        else:
-            context['error'] = "Please enter a valid prompt."
-
-    return render(request, 'text_input.html', context)
+    def __str__(self):
+        return f"{self.prompt[:50]}... ({self.status})"
